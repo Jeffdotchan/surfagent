@@ -257,7 +257,7 @@ export const STEALTH_PAYLOAD = `
       navigator.permissions.query = function(parameters) {
         if (parameters && parameters.name === 'notifications') {
           return Promise.resolve({
-            state: Notification.permission === 'denied' ? 'denied' : 'prompt',
+            state: (typeof Notification !== 'undefined' && Notification.permission === 'denied') ? 'denied' : 'prompt',
             onchange: null,
           });
         }
