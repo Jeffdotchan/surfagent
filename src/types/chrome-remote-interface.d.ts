@@ -25,9 +25,28 @@ declare module 'chrome-remote-interface' {
     };
   }
 
+  // Minimal stub for the Fetch CDP domain — only the methods used by the proxy auth handler.
+  // The chrome-remote-interface JS runtime supports the full Fetch domain;
+  // this typing covers just enable/requestPaused/authRequired/continueWithAuth/continueRequest.
+  interface FetchDomain {
+    enable(options?: { handleAuthRequests?: boolean }): Promise<void>;
+    continueRequest(options: { requestId: string }): Promise<void>;
+    continueWithAuth(options: {
+      requestId: string;
+      authChallengeResponse: {
+        response: string;
+        username?: string;
+        password?: string;
+      };
+    }): Promise<void>;
+    requestPaused(callback: (event: any) => void): void;
+    authRequired(callback: (event: any) => void): void;
+  }
+
   interface Client {
     Page: {
       enable(): Promise<void>;
+      addScriptToEvaluateOnNewDocument(options: { source: string }): Promise<void>;
       captureScreenshot(options?: {
         format?: string;
         fromSurface?: boolean;
@@ -43,6 +62,7 @@ declare module 'chrome-remote-interface' {
     DOM: {
       enable(): Promise<void>;
     };
+    Fetch?: FetchDomain;
     close(): Promise<void>;
   }
 
