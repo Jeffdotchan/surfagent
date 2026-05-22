@@ -154,7 +154,7 @@ BROWSER_PATH="/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" su
 
 ## Stealth & Cadence (fork)
 
-This fork (`Jeffdotchan/surfagent`, version `1.3.0-stealth.1+`) adds three layers on top of the
+This fork (`Jeffdotchan/surfagent`, version `1.4.0-stealth.1+`) adds three layers on top of the
 upstream `AllAboutAI-YT/surfagent`:
 
 - **Stealth injection** (default on): on every new CDP target, surfagent injects a
@@ -197,6 +197,23 @@ curl -s http://localhost:3456/click -d '{"tab":"0","selector":".cta","humanMouse
 
 Not in scope: `Runtime.evaluate` / `Function.prototype.toString` meta-patching, per-profile UA
 randomization, cookie-jar warming, behavioral session replay. Each is its own future spec.
+
+## Proxy support
+
+This fork supports routing each Chrome instance through a residential proxy via a shared sticky-session pool file. Opt-in per instance; backwards-compatible no-op when unset.
+
+Set `SURFAGENT_PROXY_POOL_FILE` to the path of a pool file where each line is a single sticky session credential in colon-separated format: `username:password_with_session_id:host:port`. The session-ID is embedded in the password field (e.g. PacketStream's `_session-XXXXXXXX` suffix). surfagent reads the file at Chrome launch time, picks a random line, adds `--proxy-server=http://host:port` to Chrome's args, and handles proxy authentication challenges automatically via CDP `Fetch.continueWithAuth`. The selected IP is stable for the lifetime of that Chrome process; to rotate, kill and respawn Chrome.
+
+Proxy creds are never written to git history or instance env files — only the path to the pool file is configured per instance. Logs record the host:port and first 8 chars of the session tag only; the full password is never printed.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SURFAGENT_PROXY_POOL_FILE` | unset | Path to a `user:pass:host:port` pool file (one line per sticky session). When unset, Chrome connects direct. |
+| `SURFAGENT_PROXY_BYPASS` | unset | Comma-separated bypass list passed to Chrome as `--proxy-bypass-list`. Example: `127.0.0.1,localhost,192.168.1.0/24,.local`. |
+
+The vars `SURFAGENT_PROXY_USERNAME` and `SURFAGENT_PROXY_PASSWORD` are reserved for internal use (pool loader → CDP auth handler state passing). Setting them externally is unsupported; they will be overwritten when `SURFAGENT_PROXY_POOL_FILE` is set.
+
+For PacketStream sticky-session format and session-ID conventions, see the [PacketStream residential proxy docs](https://docs.packetstream.io/api/residential-proxy).
 
 ## Contributing
 

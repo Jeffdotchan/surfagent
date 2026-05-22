@@ -1,5 +1,6 @@
 import CDP from 'chrome-remote-interface';
 import { injectStealth } from '../stealth/inject.js';
+import { installProxyAuth } from '../proxy/authHandler.js';
 
 export interface CDPClient {
   Page: CDP.Client['Page'];
@@ -41,6 +42,7 @@ export async function connectToTab(targetId: string, port: number = DEFAULT_PORT
   await client.Runtime.enable();
   await client.DOM.enable();
   await injectStealth(client);
+  await installProxyAuth(client);
   return client as CDPClient;
 }
 
