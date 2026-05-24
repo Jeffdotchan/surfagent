@@ -99,7 +99,7 @@ function startChrome(chromePath) {
     const cred = ensureProxyEnvSet('launch');
     const proxyBypass = process.env.SURFAGENT_PROXY_BYPASS;
     if (cred) {
-        args.push(`--proxy-server=http://${cred.host}:${cred.port}`);
+        args.push(`--proxy-server=https://${cred.host}:${cred.port}`);
         if (proxyBypass)
             args.push(`--proxy-bypass-list=${proxyBypass}`);
     }

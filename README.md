@@ -202,7 +202,9 @@ randomization, cookie-jar warming, behavioral session replay. Each is its own fu
 
 This fork supports routing each Chrome instance through a residential proxy via a shared sticky-session pool file. Opt-in per instance; backwards-compatible no-op when unset.
 
-Set `SURFAGENT_PROXY_POOL_FILE` to the path of a pool file where each line is a single sticky session credential in colon-separated format: `username:password_with_session_id:host:port`. The session-ID is embedded in the password field (e.g. PacketStream's `_session-XXXXXXXX` suffix). surfagent reads the file at Chrome launch time, picks a random line, adds `--proxy-server=http://host:port` to Chrome's args, and handles proxy authentication challenges automatically via CDP `Fetch.continueWithAuth`. The selected IP is stable for the lifetime of that Chrome process; to rotate, kill and respawn Chrome.
+Set `SURFAGENT_PROXY_POOL_FILE` to the path of a pool file where each line is a single sticky session credential in colon-separated format: `username:password_with_session_id:host:port`. The session-ID is embedded in the password field (e.g. PacketStream's `_session-XXXXXXXX` suffix). surfagent reads the file at Chrome launch time, picks a random line, adds `--proxy-server=https://host:port` to Chrome's args, and handles proxy authentication challenges automatically via CDP `Fetch.continueWithAuth`. The selected IP is stable for the lifetime of that Chrome process; to rotate, kill and respawn Chrome.
+
+**PacketStream endpoint:** use `proxy.packetstream.io:31111` (HTTPS-to-proxy) in the pool file. The HTTP-to-proxy endpoint at `:31112` puts Chrome's CDP-mediated Basic auth into a 407 retry loop ending in `ERR_TOO_MANY_RETRIES`; this fork only validates the `:31111` path. The pool file format is unchanged (`user:pass:host:port`) — just point the host:port at the HTTPS endpoint.
 
 Proxy creds are never written to git history or instance env files — only the path to the pool file is configured per instance. Logs record the host:port and first 8 chars of the session tag only; the full password is never printed.
 
@@ -227,7 +229,7 @@ POST /rotate-proxy
 {
   "ok": true,
   "host": "proxy.packetstream.io",
-  "port": 31112,
+  "port": 31111,
   "sessionTag": "w2Vk1JAt",
   "previousSessionTag": "x9Pn2Q3R",
   "note": "next CDP connection will use the new session; in-flight connections retain prior creds"
@@ -237,7 +239,7 @@ POST /rotate-proxy
 503 Service Unavailable  — pool file is unreadable or has no valid entries
 ```
 
-**Constraint — pool entries must share `host:port`.** Chrome's `--proxy-server` flag is set once at launch and cannot change without restarting Chrome. Only the credentials (username / session-tagged password) rotate. A pool that mixes two providers would silently route some requests to the wrong proxy. PacketStream-only pools satisfy this automatically (all lines share `proxy.packetstream.io:31112`).
+**Constraint — pool entries must share `host:port`.** Chrome's `--proxy-server` flag is set once at launch and cannot change without restarting Chrome. Only the credentials (username / session-tagged password) rotate. A pool that mixes two providers would silently route some requests to the wrong proxy. PacketStream-only pools satisfy this automatically (all lines share `proxy.packetstream.io:31111`).
 
 **"Next CDP connection" nuance.** Already-open CDP clients closure-captured the OLD credentials when `installProxyAuth` ran. Those keep using the old creds for already-paused requests. surfagent creates a fresh CDP client per API call, so the very next `/navigate` or `/recon` after `/rotate-proxy` will use the new session. Long-lived external CDP clients (none used internally today) would retain old creds until reconnected.
 
