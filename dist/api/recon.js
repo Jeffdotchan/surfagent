@@ -280,14 +280,21 @@ export async function reconUrl(url, options) {
     const port = options.port || 9222;
     const host = options.host || 'localhost';
     const waitMs = options.waitMs || 2000;
-    // Open URL in a new tab. Sanitize first: chrome-remote-interface forwards
-    // the URL into Chrome's debug HTTP path, where Node's http.request throws
-    // ERR_UNESCAPED_CHARACTERS for spaces etc. The library doesn't catch its
-    // own rejection, which crashes the API process.
-    const target = await CDP.New({ port, host, url: encodeURI(decodeURI(url)) });
+    // Open a blank tab first, then navigate after Fetch auth handler is installed.
+    // CDP.New with a URL starts navigation before we can enable Fetch.authRequired,
+    // causing a race where the proxy auth challenge fires before the handler is
+    // registered — resulting in ERR_TOO_MANY_RETRIES / chrome-error pages when
+    // using an authenticated HTTPS-to-proxy. By opening blank and navigating after
+    // connectToTab (which calls installProxyAuth → Fetch.enable), the auth handler
+    // is guaranteed to be in place before the first proxy CONNECT.
+    const target = await CDP.New({ port, host });
     let client = null;
     try {
         client = await connectToTab(target.id, port, host);
+        // Navigate after auth handler is installed. Sanitize URL: chrome-remote-interface
+        // forwards the URL into Chrome's debug HTTP path where Node's http.request throws
+        // ERR_UNESCAPED_CHARACTERS for spaces etc.
+        await client.Page.navigate({ url: encodeURI(decodeURI(url)) });
         // Wait for page load + extra settle time
         await client.Page.loadEventFired();
         await new Promise(resolve => setTimeout(resolve, waitMs));
