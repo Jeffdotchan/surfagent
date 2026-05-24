@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pickSticky } from './proxy/pool.js';
+import { ensureProxyEnvSet } from './proxy/credState.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
@@ -99,18 +99,13 @@ function startChrome(chromePath: string) {
   ];
 
   // Proxy pool: opt-in via SURFAGENT_PROXY_POOL_FILE. Fails closed — no silent
-  // fallback to direct (that would be an IP leak).
-  const cred = pickSticky(process.env.SURFAGENT_PROXY_POOL_FILE);
+  // fallback to direct (that would be an IP leak). ensureProxyEnvSet picks a
+  // sticky session, stashes creds in process.env, and logs the session tag.
+  const cred = ensureProxyEnvSet('launch');
   const proxyBypass = process.env.SURFAGENT_PROXY_BYPASS;
   if (cred) {
     args.push(`--proxy-server=http://${cred.host}:${cred.port}`);
     if (proxyBypass) args.push(`--proxy-bypass-list=${proxyBypass}`);
-    // Stash creds in process env for the CDP auth handler to consume.
-    process.env.SURFAGENT_PROXY_USERNAME = cred.username;
-    process.env.SURFAGENT_PROXY_PASSWORD = cred.password;
-    // Log host:port + first 8 chars of session tag only — never the full password.
-    const sessionTag = cred.password.match(/session-([A-Za-z0-9]+)/)?.[1]?.slice(0, 8) ?? '?';
-    log(`Chrome will route via proxy ${cred.host}:${cred.port} (sticky session ${sessionTag})`);
   }
 
   const chrome = spawn(chromePath, args, {
@@ -219,6 +214,9 @@ Full API docs: https://github.com/Jeffdotchan/surfagent#readme
       console.error(`[surfagent] Chrome not running on port ${CDP_PORT}. Run: surfagent chrome`);
       process.exit(1);
     }
+    // Restore proxy creds if pool is configured and this node process didn't
+    // run startChrome (i.e., Chrome was already running when 'api' was invoked).
+    ensureProxyEnvSet('restart');
     await import('./api/server.js');
     return;
   }
@@ -230,6 +228,9 @@ Full API docs: https://github.com/Jeffdotchan/surfagent#readme
     let cdpRunning = await checkCDP();
     if (cdpRunning) {
       log(`Chrome already running on port ${CDP_PORT}`);
+      // Restore proxy creds — this node process didn't run startChrome, so
+      // ensureProxyEnvSet('launch') was never called. Idempotent if creds already set.
+      ensureProxyEnvSet('restart');
     } else {
       const chromePath = getChromePath();
       if (!chromePath) {

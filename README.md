@@ -215,6 +215,41 @@ The vars `SURFAGENT_PROXY_USERNAME` and `SURFAGENT_PROXY_PASSWORD` are reserved 
 
 For PacketStream sticky-session format and session-ID conventions, see the [PacketStream residential proxy docs](https://docs.packetstream.io/api/residential-proxy).
 
+### Rotation
+
+`POST /rotate-proxy` (no request body) re-picks a random line from the pool file, updates the in-process credentials, and returns the new and previous session tags — all without touching Chrome.
+
+```
+POST /rotate-proxy
+(no body)
+
+200 OK
+{
+  "ok": true,
+  "host": "proxy.packetstream.io",
+  "port": 31112,
+  "sessionTag": "w2Vk1JAt",
+  "previousSessionTag": "x9Pn2Q3R",
+  "note": "next CDP connection will use the new session; in-flight connections retain prior creds"
+}
+
+400 Bad Request  — SURFAGENT_PROXY_POOL_FILE is unset (instance is not proxied)
+503 Service Unavailable  — pool file is unreadable or has no valid entries
+```
+
+**Constraint — pool entries must share `host:port`.** Chrome's `--proxy-server` flag is set once at launch and cannot change without restarting Chrome. Only the credentials (username / session-tagged password) rotate. A pool that mixes two providers would silently route some requests to the wrong proxy. PacketStream-only pools satisfy this automatically (all lines share `proxy.packetstream.io:31112`).
+
+**"Next CDP connection" nuance.** Already-open CDP clients closure-captured the OLD credentials when `installProxyAuth` ran. Those keep using the old creds for already-paused requests. surfagent creates a fresh CDP client per API call, so the very next `/navigate` or `/recon` after `/rotate-proxy` will use the new session. Long-lived external CDP clients (none used internally today) would retain old creds until reconnected.
+
+**Autonomous-scraper recovery pattern.** When a scraper receives a 407 from the upstream proxy:
+1. `POST /rotate-proxy` — get a fresh sticky session.
+2. Retry the failed request (the next `/navigate` or `/recon` call automatically uses the new session).
+3. If 407 persists after 2–3 retries, the pool may be exhausted — alert and stop; do not rotate indefinitely.
+
+**Human-operator equivalent.** `curl -X POST http://localhost:3500/rotate-proxy` (replace 3500 with the instance's API port). No `pkill` of Chrome required; no downtime.
+
+**Node-restart-without-Chrome-restart fix (v1.4.1-stealth.1).** With `KillMode=process` on the systemd units, a plain `systemctl --user restart surfagent@<id>` keeps Chrome alive but starts a fresh node process that has no `SURFAGENT_PROXY_USERNAME`/`SURFAGENT_PROXY_PASSWORD` in its environment. The new node calls `ensureProxyEnvSet('restart')` before importing the API server, which re-picks from the pool and restores creds silently. Journal log: `Proxy creds restored from pool (sticky session <tag>) — node restarted while Chrome was alive`. Pre-v1.4.1, this case silently 407'd.
+
 ## Contributing
 
 This is a fork. Upstream is [github.com/AllAboutAI-YT/surfagent](https://github.com/AllAboutAI-YT/surfagent);

@@ -3,6 +3,7 @@ import http from 'node:http';
 import { reconUrl, reconTab } from './recon.js';
 import { fillFields, clickElement, scrollPage, navigatePage, evalInTab, focusTab, readPage, captchaInteract, dismissOverlays, typeKeys, dispatchEvent } from './act.js';
 import { getAllTabs } from '../chrome/tabs.js';
+import { handleRotateProxy } from './rotateProxy.js';
 const PORT = parseInt(process.env.API_PORT || '3456', 10);
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 const CDP_HOST = process.env.CDP_HOST || 'localhost';
@@ -190,7 +191,11 @@ const server = http.createServer(async (req, res) => {
                 return json(res, 503, { status: 'error', cdpConnected: false });
             }
         }
-        json(res, 404, { error: 'Not found. Endpoints: POST /recon, /read, /fill, /click, /type, /scroll, /navigate, /eval, /dispatch, /dismiss, /captcha, /focus | GET /tabs, /health' });
+        // POST /rotate-proxy — rotate to a fresh sticky from the pool (no body required)
+        if (path === '/rotate-proxy' && req.method === 'POST') {
+            return handleRotateProxy(req, res, json);
+        }
+        json(res, 404, { error: 'Not found. Endpoints: POST /recon, /read, /fill, /click, /type, /scroll, /navigate, /eval, /dispatch, /dismiss, /captcha, /focus, /rotate-proxy | GET /tabs, /health' });
     }
     catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -219,10 +224,11 @@ server.listen(PORT, () => {
     console.log(`Browser Recon API running on http://localhost:${PORT}`);
     console.log(`CDP target: ${CDP_HOST}:${CDP_PORT}`);
     console.log(`\nEndpoints:`);
-    console.log(`  POST /recon   — { url: "..." } or { tab: "0" }`);
-    console.log(`  POST /fill    — { tab, fields: [{ selector, value }], submit? }`);
-    console.log(`  POST /click   — { tab, selector? , text? }`);
-    console.log(`  POST /dispatch— { tab, selector, event, reactDebug? }`);
-    console.log(`  GET  /tabs    — list open Chrome tabs`);
-    console.log(`  GET  /health  — check CDP connection`);
+    console.log(`  POST /recon         — { url: "..." } or { tab: "0" }`);
+    console.log(`  POST /fill          — { tab, fields: [{ selector, value }], submit? }`);
+    console.log(`  POST /click         — { tab, selector? , text? }`);
+    console.log(`  POST /dispatch      — { tab, selector, event, reactDebug? }`);
+    console.log(`  POST /rotate-proxy  — rotate to a fresh sticky from the pool (no body required)`);
+    console.log(`  GET  /tabs          — list open Chrome tabs`);
+    console.log(`  GET  /health        — check CDP connection`);
 });
