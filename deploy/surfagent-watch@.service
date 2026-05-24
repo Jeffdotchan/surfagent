@@ -1,0 +1,35 @@
+# Sibling unit to surfagent@.service — tails the per-instance Chrome download
+# directory and ships completed files to the public Synology share.
+#
+# Install path on BLD:
+#   ~/.config/systemd/user/surfagent-watch@.service
+#
+# Per-instance enable pattern:
+#   cp deploy/surfagent-watch@.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now surfagent-watch@<id>
+#
+# Bound to surfagent@<id>.service via BindsTo= — stops automatically when the
+# parent surfagent instance stops.
+#
+# Requires the helper script at /home/jeff/bin/surfagent-download-watcher.js.
+#
+# Cross-links (Obsidian vault):
+#   [[BLD OS Reinstall Recovery (2026-05-22)]]
+#   [[reference_surfagent_fleet]]
+
+[Unit]
+Description=Surfagent download watcher for instance %i
+After=surfagent@%i.service
+BindsTo=surfagent@%i.service
+
+[Service]
+Type=simple
+Environment=NODE_PATH=/home/jeff/.local/share/fnm/node-versions/v22.22.2/installation/lib/node_modules
+EnvironmentFile=/home/jeff/.config/surfagent/instance-%i.env
+ExecStart=/home/jeff/.local/share/fnm/node-versions/v22.22.2/installation/bin/node /home/jeff/bin/surfagent-download-watcher.js --log=/tmp/surfagent-downloads-%i.log --dir=/tmp/surfagent-downloads-%i
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
