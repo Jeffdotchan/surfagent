@@ -1,0 +1,46 @@
+# Canonical surfagent systemd unit template (user scope).
+#
+# Install path on BLD:
+#   ~/.config/systemd/user/surfagent@.service
+#
+# Per-instance enable pattern:
+#   cp deploy/surfagent@.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now surfagent@<id>   # <id> = a, b, c, d, e
+#
+# Each instance reads its per-instance env file from
+#   ~/.config/surfagent/instance-<id>.env
+# (see deploy/instance.env.example for the expected shape).
+#
+# Cross-links (Obsidian vault):
+#   [[BLD OS Reinstall Recovery (2026-05-22)]]
+#   [[reference_surfagent_dossier]]
+#
+# Notes:
+# - DISPLAY=:0 matches Zorin OS 18.1 GDM default. If your X session lives on
+#   :1 (rare; older Ubuntu defaults), override via the per-instance env file.
+# - KillMode=process is REQUIRED so the detached Chrome child survives systemd
+#   restarts of the parent node process. Do not change to control-group.
+
+[Unit]
+Description=Surfagent instance %i — Chrome CDP browser automation HTTP+MCP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+KillMode=process
+Environment=NODE_PATH=/home/jeff/.local/share/fnm/node-versions/v22.22.2/installation/lib/node_modules
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+EnvironmentFile=/home/jeff/.config/surfagent/instance-%i.env
+ExecStart=/home/jeff/.local/share/fnm/node-versions/v22.22.2/installation/bin/node /home/jeff/.local/share/fnm/node-versions/v22.22.2/installation/bin/surfagent start
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
