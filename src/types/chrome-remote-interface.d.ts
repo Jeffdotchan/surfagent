@@ -43,6 +43,18 @@ declare module 'chrome-remote-interface' {
     authRequired(callback: (event: any) => void): void;
   }
 
+  // Minimal stub for the Network CDP domain — only what /capture uses.
+  // The chrome-remote-interface JS runtime supports the full Network domain;
+  // event handlers are loosely typed (`any`) consistent with the Fetch shim above.
+  interface NetworkDomain {
+    enable(options?: { maxResourceBufferSize?: number; maxTotalBufferSize?: number }): Promise<void>;
+    getResponseBody(options: { requestId: string }): Promise<{ body: string; base64Encoded: boolean }>;
+    requestWillBeSent(callback: (event: any) => void): void;
+    responseReceived(callback: (event: any) => void): void;
+    loadingFinished(callback: (event: any) => void): void;
+    webSocketCreated(callback: (event: any) => void): void;
+  }
+
   interface Client {
     Page: {
       enable(): Promise<void>;
@@ -51,6 +63,8 @@ declare module 'chrome-remote-interface' {
         format?: string;
         fromSurface?: boolean;
       }): Promise<{ data: string }>;
+      reload(options?: { ignoreCache?: boolean }): Promise<void>;
+      navigate(options: { url: string }): Promise<{ frameId?: string; errorText?: string }>;
     };
     Runtime: {
       enable(): Promise<void>;
@@ -63,6 +77,7 @@ declare module 'chrome-remote-interface' {
       enable(): Promise<void>;
     };
     Fetch?: FetchDomain;
+    Network?: NetworkDomain;
     close(): Promise<void>;
   }
 

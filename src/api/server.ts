@@ -4,6 +4,7 @@ import http from 'node:http';
 import { reconUrl, reconTab } from './recon.js';
 import { fillFields, clickElement, scrollPage, navigatePage, evalInTab, focusTab, readPage, captchaInteract, dismissOverlays, typeKeys, dispatchEvent } from './act.js';
 import { getAllTabs } from '../chrome/tabs.js';
+import { captureTab } from './capture.js';
 import { handleRotateProxy } from './rotateProxy.js';
 
 const PORT = parseInt(process.env.API_PORT || '3456', 10);
@@ -167,6 +168,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { result });
     }
 
+    // POST /capture — record network traffic and return discovered API calls
+    if (path === '/capture' && req.method === 'POST') {
+      const body = parseBody(await readBody(req));
+      if (!body.tab) {
+        return json(res, 400, { error: 'Provide "tab", optional "durationMs", "reload", "navigate", "types", "includeBodies", "maxBodyBytes", "stripQuery"' });
+      }
+      const start = Date.now();
+      const result = await captureTab(body, { port: CDP_PORT, host: CDP_HOST });
+      return json(res, 200, { ...result, _captureMs: Date.now() - start });
+    }
+
     // POST /type — raw CDP key typing, no clear step (for Google Sheets, contenteditable, etc.)
     if (path === '/type' && req.method === 'POST') {
       const body = parseBody(await readBody(req));
@@ -225,7 +237,7 @@ const server = http.createServer(async (req, res) => {
       return handleRotateProxy(req, res, json);
     }
 
-    json(res, 404, { error: 'Not found. Endpoints: POST /recon, /read, /fill, /click, /type, /scroll, /navigate, /eval, /dispatch, /dismiss, /captcha, /focus, /rotate-proxy | GET /tabs, /health' });
+    json(res, 404, { error: 'Not found. Endpoints: POST /recon, /read, /fill, /click, /type, /scroll, /navigate, /eval, /capture, /dispatch, /dismiss, /captcha, /focus, /rotate-proxy | GET /tabs, /health' });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[${new Date().toISOString()}] Error:`, message);
@@ -260,6 +272,7 @@ server.listen(PORT, () => {
   console.log(`  POST /fill          — { tab, fields: [{ selector, value }], submit? }`);
   console.log(`  POST /click         — { tab, selector? , text? }`);
   console.log(`  POST /dispatch      — { tab, selector, event, reactDebug? }`);
+  console.log(`  POST /capture       — { tab, durationMs?, reload?, navigate?, types?, includeBodies?, maxBodyBytes? }`);
   console.log(`  POST /rotate-proxy  — rotate to a fresh sticky from the pool (no body required)`);
   console.log(`  GET  /tabs          — list open Chrome tabs`);
   console.log(`  GET  /health        — check CDP connection`);
