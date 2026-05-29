@@ -25,3 +25,9 @@ export declare function rotateProxyCred(): {
     cred: StickyCred;
     previousTag: string;
 } | null;
+/**
+ * Read the current sticky cred from env (all four fields). Returns null if
+ * username or password is absent. Used by browserless proxied paths (/fetch)
+ * to route out the exact same sticky session the live browser uses.
+ */
+export declare function currentProxyCred(): StickyCred | null;

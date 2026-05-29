@@ -5,6 +5,7 @@ import { reconUrl, reconTab } from './recon.js';
 import { fillFields, clickElement, scrollPage, navigatePage, evalInTab, focusTab, readPage, captchaInteract, dismissOverlays, typeKeys, dispatchEvent } from './act.js';
 import { getAllTabs } from '../chrome/tabs.js';
 import { captureTab } from './capture.js';
+import { fetchUrl } from './fetchUrl.js';
 import { handleRotateProxy } from './rotateProxy.js';
 
 const PORT = parseInt(process.env.API_PORT || '3456', 10);
@@ -179,6 +180,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ...result, _captureMs: Date.now() - start });
     }
 
+    // POST /fetch — browserless HTTP request, routed through the instance's residential proxy
+    if (path === '/fetch' && req.method === 'POST') {
+      const body = parseBody(await readBody(req));
+      if (!body.url) {
+        return json(res, 400, { error: 'Provide "url", optional "method", "headers", "body", "proxy", "json", "maxBodyBytes", "timeoutMs"' });
+      }
+      const start = Date.now();
+      const result = await fetchUrl(body);
+      return json(res, 200, { ...result, _fetchMs: Date.now() - start });
+    }
+
     // POST /type — raw CDP key typing, no clear step (for Google Sheets, contenteditable, etc.)
     if (path === '/type' && req.method === 'POST') {
       const body = parseBody(await readBody(req));
@@ -237,7 +249,7 @@ const server = http.createServer(async (req, res) => {
       return handleRotateProxy(req, res, json);
     }
 
-    json(res, 404, { error: 'Not found. Endpoints: POST /recon, /read, /fill, /click, /type, /scroll, /navigate, /eval, /capture, /dispatch, /dismiss, /captcha, /focus, /rotate-proxy | GET /tabs, /health' });
+    json(res, 404, { error: 'Not found. Endpoints: POST /recon, /read, /fill, /click, /type, /scroll, /navigate, /eval, /capture, /fetch, /dispatch, /dismiss, /captcha, /focus, /rotate-proxy | GET /tabs, /health' });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[${new Date().toISOString()}] Error:`, message);
@@ -247,6 +259,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (message.includes('Tab not found')) {
       return json(res, 404, { error: message });
+    }
+    if (message === 'Invalid url') {
+      return json(res, 400, { error: message });
+    }
+    if (path === '/fetch') {
+      return json(res, 502, { error: `Upstream fetch failed: ${message}` });
     }
     if (message.includes('Cannot connect to Chrome') || message.includes('ECONNREFUSED')) {
       return json(res, 503, { error: 'Chrome not running. Start with: surfagent start' });
@@ -273,6 +291,7 @@ server.listen(PORT, () => {
   console.log(`  POST /click         — { tab, selector? , text? }`);
   console.log(`  POST /dispatch      — { tab, selector, event, reactDebug? }`);
   console.log(`  POST /capture       — { tab, durationMs?, reload?, navigate?, types?, includeBodies?, maxBodyBytes? }`);
+  console.log(`  POST /fetch         — { url, method?, headers?, body?, proxy?, json?, maxBodyBytes?, timeoutMs? }`);
   console.log(`  POST /rotate-proxy  — rotate to a fresh sticky from the pool (no body required)`);
   console.log(`  GET  /tabs          — list open Chrome tabs`);
   console.log(`  GET  /health        — check CDP connection`);
