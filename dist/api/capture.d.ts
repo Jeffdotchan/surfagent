@@ -16,6 +16,8 @@ export interface CapturedApi {
     mimeType: string | null;
     requestPayload: string | null;
     responseBytes: number | null;
+    requestHeaders?: Record<string, string>;
+    authHeaders?: Record<string, string>;
     body?: string;
     truncated?: boolean;
 }

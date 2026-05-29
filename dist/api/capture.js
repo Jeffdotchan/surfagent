@@ -7,6 +7,35 @@ const MAX_DURATION_MS = 60000;
 const DEFAULT_BODY_CAP_BYTES = 64 * 1024;
 const MAX_BODY_CAP_BYTES = 8 * 1024 * 1024; // hard ceiling to bound memory per capture
 const DEFAULT_TYPES = ['XHR', 'Fetch'];
+// Request-header names that commonly carry auth material a page injects via JS
+// (absent from cookies) — these are what gate replay via /fetch. Surfaced as a
+// convenience `authHeaders` subset on each API entry. Matching is
+// case-insensitive (CDP lowercases extra-info header names anyway): an exact
+// allowlist plus the `x-` custom-header prefix (catches x-api-key, x-auth-token,
+// x-csrf-token, x-amz-*, etc.).
+const AUTH_HEADER_EXACT = new Set([
+    'authorization',
+    'apikey',
+    'api-key',
+    'token',
+    'access-token',
+    'cookie',
+]);
+const AUTH_HEADER_PREFIXES = ['x-'];
+function isAuthHeader(name) {
+    const lower = name.toLowerCase();
+    if (AUTH_HEADER_EXACT.has(lower))
+        return true;
+    return AUTH_HEADER_PREFIXES.some(p => lower.startsWith(p));
+}
+function pickAuthHeaders(headers) {
+    const out = {};
+    for (const [k, v] of Object.entries(headers)) {
+        if (isAuthHeader(k))
+            out[k] = v;
+    }
+    return out;
+}
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -35,12 +64,41 @@ export async function captureTab(body, opts = {}) {
         await installProxyAuth(client);
         // requestId -> record. Seed on requestWillBeSent, enrich on later events.
         const records = new Map();
+        // requestId -> full request headers. Two sources, merged at the end:
+        //   1. Network.requestWillBeSent.request.headers — the page-author-supplied set.
+        //   2. Network.requestWillBeSentExtraInfo.headers — the COMPLETE set Chrome
+        //      actually puts on the wire, including headers injected by the browser,
+        //      extensions, or JS (e.g. an `x-api-key` set by the SPA's fetch wrapper)
+        //      that never appear in (1). This is the unlock for key-gated APIs.
+        // extra-info can arrive before OR after requestWillBeSent, so buffer it
+        // independent of `records`; lowercased names from extra-info win on conflict.
+        const requestHeaders = new Map();
         let totalRequests = 0;
+        function lowerKeys(h) {
+            const out = {};
+            if (!h)
+                return out;
+            for (const [k, v] of Object.entries(h)) {
+                out[k.toLowerCase()] = String(v);
+            }
+            return out;
+        }
+        function mergeHeaders(requestId, incoming) {
+            const existing = requestHeaders.get(requestId);
+            // extra-info (incoming) is authoritative — spread it last.
+            requestHeaders.set(requestId, existing ? { ...existing, ...incoming } : incoming);
+        }
         // Register all listeners BEFORE Network.enable() so navigation can't race them
         // (per feedback_cdp_fetch_handlers_before_navigate).
         Network.requestWillBeSent((event) => {
             totalRequests++;
             const requestId = event.requestId;
+            // Seed the base request headers from the page-supplied set; the more
+            // complete extraInfo set (which may arrive before or after this) merges
+            // on top via mergeHeaders.
+            if (event.request?.headers) {
+                mergeHeaders(requestId, lowerKeys(event.request.headers));
+            }
             if (!records.has(requestId)) {
                 records.set(requestId, {
                     method: event.request?.method ?? 'GET',
@@ -51,6 +109,16 @@ export async function captureTab(body, opts = {}) {
                     requestPayload: event.request?.postData ?? null,
                     responseBytes: null,
                 });
+            }
+        });
+        // The authoritative, complete header set Chrome puts on the wire. Carries
+        // JS/extension/browser-injected headers (notably auth keys like x-api-key)
+        // that are absent from requestWillBeSent.request.headers. Correlated by
+        // requestId. Registered before Network.enable() so navigation can't race it.
+        Network.requestWillBeSentExtraInfo((event) => {
+            const requestId = event.requestId;
+            if (event.headers) {
+                mergeHeaders(requestId, lowerKeys(event.headers));
             }
         });
         Network.responseReceived((event) => {
@@ -113,13 +181,22 @@ export async function captureTab(body, opts = {}) {
         // Filter by resource type (unless '*'), dedup by method + url(stripQuery), keep first seen.
         const seen = new Set();
         const apis = [];
-        for (const rec of records.values()) {
+        for (const [requestId, rec] of records.entries()) {
             if (!allTypes && !types.includes(rec.type))
                 continue;
             const key = `${rec.method} ${stripQuery ? rec.url.split('?')[0] : rec.url}`;
             if (seen.has(key))
                 continue;
             seen.add(key);
+            // Attach the merged request headers (page-supplied + extra-info) so the
+            // operator can replay key-gated endpoints verbatim via /fetch.
+            const hdrs = requestHeaders.get(requestId);
+            if (hdrs && Object.keys(hdrs).length > 0) {
+                rec.requestHeaders = hdrs;
+                const auth = pickAuthHeaders(hdrs);
+                if (Object.keys(auth).length > 0)
+                    rec.authHeaders = auth;
+            }
             apis.push(rec);
         }
         apis.sort((a, b) => a.url.localeCompare(b.url));

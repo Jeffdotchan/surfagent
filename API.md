@@ -457,7 +457,16 @@ By default it captures **XHR + Fetch** resource types (what "backend API" usuall
       "status": 200,
       "mimeType": "application/json",
       "requestPayload": null,
-      "responseBytes": 18342
+      "responseBytes": 18342,
+      "requestHeaders": {
+        "accept": "application/json",
+        "user-agent": "Mozilla/5.0 ...",
+        "referer": "https://app.example.com/dashboard",
+        "x-api-key": "pk_live_abc123"
+      },
+      "authHeaders": {
+        "x-api-key": "pk_live_abc123"
+      }
     },
     {
       "method": "POST",
@@ -466,13 +475,22 @@ By default it captures **XHR + Fetch** resource types (what "backend API" usuall
       "status": 204,
       "mimeType": null,
       "requestPayload": "{\"event\":\"view\"}",
-      "responseBytes": 0
+      "responseBytes": 0,
+      "requestHeaders": {
+        "content-type": "application/json",
+        "authorization": "Bearer eyJ..."
+      },
+      "authHeaders": {
+        "authorization": "Bearer eyJ..."
+      }
     }
   ]
 }
 ```
 
 `totalRequests` counts every observed request (pre-filter, pre-dedup); `apis` is the filtered, deduped list. When `includeBodies` is set, matching entries also carry `body` (string, possibly truncated) and `truncated` (boolean).
+
+**`requestHeaders` / `authHeaders` (the key-gated-API unlock):** each entry carries `requestHeaders` — the **full** set of request headers Chrome actually put on the wire, merged from `Network.requestWillBeSent.request.headers` *and* `Network.requestWillBeSentExtraInfo` (the CDP event that exposes headers injected by JS, extensions, or the browser itself — e.g. an `x-api-key` the SPA's fetch wrapper adds, which never appears in cookies). Header names are lowercased. `authHeaders` is a convenience subset of `requestHeaders` containing only the auth-ish ones (`authorization`, `apikey`/`api-key`, `token`/`access-token`, `cookie`, and any `x-*` custom header) — exactly the headers you must replay to call a **key-gated** endpoint via `/fetch`. Both fields are omitted when empty (additive, backward-compatible). Copy `authHeaders` (or the full `requestHeaders`) straight into `/fetch`'s `headers` object to replay a key-gated API without Chrome.
 
 **Examples:**
 
@@ -560,6 +578,19 @@ curl -s -X POST localhost:3456/fetch \
   -d '{"url":"https://websites-search.api.example.inc/api/v1/listings/.../search?page=2","json":true,"maxBodyBytes":4194304}' \
   | jq '.status, .proxied, (.json | keys)'
 #    → 200, true, [ "listings", "total", ... ]
+```
+
+**Key-gated APIs (replaying with captured request headers):** some backends 401 when replayed bare because the page injects an auth header via JS (e.g. `x-api-key`) that is **not** in cookies and not in the page-author-supplied request headers. `/capture` now surfaces these on each API entry via `requestHeaders` (full set) and `authHeaders` (the auth-ish subset — see POST /capture). Copy that subset into `/fetch`'s `headers` to unlock the endpoint:
+```bash
+# capture's apis[].authHeaders for the listings call was, e.g.:
+#   { "x-api-key": "pk_live_abc123" }
+curl -s -X POST localhost:3456/fetch \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://websites-search.api.example.inc/api/v1/listings/.../search?page=2",
+       "headers":{"x-api-key":"pk_live_abc123","accept":"application/json"},
+       "json":true,"maxBodyBytes":4194304}' \
+  | jq '.status, .proxied'
+#    → 200, true   (was 401 without the x-api-key header)
 ```
 
 Pass `"proxy":false` to fetch from this host's IP instead (e.g. to confirm the residential IP differs):
