@@ -252,9 +252,14 @@ const EXTRACTION_SCRIPT = `
   }
 
   // ---- Content summary ----
-  const clone = document.body.cloneNode(true);
-  clone.querySelectorAll('script,style,noscript,svg').forEach(e => e.remove());
-  const fullText = (clone.innerText || '').trim();
+  // document.body can be null on a transient about:blank / mid-navigation document
+  // (e.g. an http->https redirect that swapped the execution context). Without this
+  // guard the whole extraction throws, Runtime.evaluate returns no value, and the TS
+  // consumer below blows up reading data.meta — surfacing as a 500 "reading 'meta'".
+  const bodyEl = document.body;
+  const clone = bodyEl ? bodyEl.cloneNode(true) : null;
+  if (clone) clone.querySelectorAll('script,style,noscript,svg').forEach(e => e.remove());
+  const fullText = clone ? (clone.innerText || '').trim() : '';
   const contentSummary = fullText.substring(0, 2000);
 
   return {
@@ -276,6 +281,28 @@ const EXTRACTION_SCRIPT = `
   };
 })()
 `;
+// Normalize a possibly-undefined extraction payload into the ReconResult field set.
+// Runtime.evaluate can return no `result.value` (data === undefined) when the in-page
+// script threw, the execution context was destroyed by a redirect, or returnByValue
+// failed to serialize. Reading data.meta directly in that case throws a TypeError that
+// the server maps to a 500 "Cannot read properties of undefined (reading 'meta')".
+// A degraded-but-valid result (correct url/title, empty collections) is the right
+// outcome for a page whose DOM couldn't be extracted.
+function normalizeExtraction(raw) {
+    const data = raw ?? {};
+    return {
+        meta: data.meta ?? { description: null, ogTitle: null, ogDescription: null, jsonLd: [] },
+        headings: data.headings ?? [],
+        navigation: data.navigation ?? [],
+        elements: data.elements ?? [],
+        totalElements: data.totalElements ?? data.elements?.length ?? 0,
+        forms: data.forms ?? [],
+        contentSummary: data.contentSummary ?? '',
+        landmarks: data.landmarks ?? [],
+        overlays: data.overlays ?? [],
+        captchas: data.captchas ?? [],
+    };
+}
 export async function reconUrl(url, options) {
     const port = options.port || 9222;
     const host = options.host || 'localhost';
@@ -337,16 +364,7 @@ export async function reconUrl(url, options) {
             title: title || target.title || '',
             tabId: target.id,
             timestamp: new Date().toISOString(),
-            meta: data.meta,
-            headings: data.headings,
-            navigation: data.navigation,
-            elements: data.elements,
-            totalElements: data.totalElements || data.elements?.length || 0,
-            forms: data.forms,
-            contentSummary: data.contentSummary,
-            landmarks: data.landmarks,
-            overlays: data.overlays || [],
-            captchas: data.captchas || [],
+            ...normalizeExtraction(data),
         };
     }
     catch (error) {
@@ -395,16 +413,7 @@ export async function reconTab(tabPattern, options) {
             title: tab.title,
             tabId: tab.id,
             timestamp: new Date().toISOString(),
-            meta: data.meta,
-            headings: data.headings,
-            navigation: data.navigation,
-            elements: data.elements,
-            totalElements: data.totalElements || data.elements?.length || 0,
-            forms: data.forms,
-            contentSummary: data.contentSummary,
-            landmarks: data.landmarks,
-            overlays: data.overlays || [],
-            captchas: data.captchas || [],
+            ...normalizeExtraction(data),
         };
     }
     catch (error) {
