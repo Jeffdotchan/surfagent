@@ -50,6 +50,7 @@ declare module 'chrome-remote-interface' {
     enable(options?: { maxResourceBufferSize?: number; maxTotalBufferSize?: number }): Promise<void>;
     getResponseBody(options: { requestId: string }): Promise<{ body: string; base64Encoded: boolean }>;
     requestWillBeSent(callback: (event: any) => void): void;
+    requestWillBeSentExtraInfo(callback: (event: any) => void): void;
     responseReceived(callback: (event: any) => void): void;
     loadingFinished(callback: (event: any) => void): void;
     webSocketCreated(callback: (event: any) => void): void;

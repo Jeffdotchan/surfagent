@@ -179,3 +179,56 @@ curl -s localhost:3456/nope | jq -r .error                                      
 
 Build green + smoke (2) returning a non-empty deduped `apis` array containing the
 page's real backend endpoints = done. Fix any tsc failure before reporting complete.
+
+---
+
+## Addendum (2026-05-28): request-header capture — key-gated-API unlock
+
+**Branch:** `feat/capture-request-headers` · **Version:** `1.4.5-stealth.1`
+
+### Problem
+The discover-then-direct-fetch loop works for public / cookie-based / key-in-header
+APIs, but FAILS for **key-gated** APIs. Concrete failure: the carscommerce listings
+API (`websites-search.api.carscommerce.inc/...`) returns **401** when replayed via
+`/fetch`, because the page injects an `x-api-key` request header via JS that is NOT
+in cookies and was NOT surfaced by `/capture`. The original capture only read
+`Network.requestWillBeSent.request.headers`, which omits browser/JS/extension-added
+headers.
+
+### Fix
+Capture the **full** request header set Chrome actually puts on the wire by adding a
+`Network.requestWillBeSentExtraInfo` handler (this CDP event carries headers absent
+from the base `requestWillBeSent.request.headers`). Correlate by `requestId`, merge
+extra-info on top of the page-supplied set (extra-info wins on conflict), lowercase
+all header names, and surface them on each API entry.
+
+`requestWillBeSentExtraInfo` may fire **before or after** `requestWillBeSent`, so
+headers are buffered in a side `Map<requestId, Record<string,string>>` independent of
+the `records` map and attached during the final dedup pass. The handler is registered
+**before** `Network.enable()`, consistent with the existing handlers and the
+`feedback_cdp_fetch_handlers_before_navigate` gotcha.
+
+### Response-shape change (additive, backward-compatible)
+`CapturedApi` gains two optional fields:
+
+```ts
+  requestHeaders?: Record<string, string>;  // FULL merged request headers (lowercased names)
+  authHeaders?: Record<string, string>;      // subset: authorization / apikey / token / cookie / any x-*
+```
+
+`authHeaders` is the convenience subset an operator copies into `/fetch`'s existing
+`headers` object to replay a key-gated endpoint. Both omitted when empty — existing
+consumers reading only the prior fields are unaffected.
+
+### `/fetch` compatibility
+No `/fetch` change needed: `FetchBody.headers: Record<string, string>` already accepts
+exactly the shape `authHeaders`/`requestHeaders` produce. The capture output is
+drop-in replay-compatible.
+
+### Files touched (addendum)
+| File | Change |
+|------|--------|
+| `src/api/capture.ts` | `requestWillBeSentExtraInfo` handler, header merge map, `requestHeaders`/`authHeaders` on entries, auth-header classifier |
+| `src/types/chrome-remote-interface.d.ts` | add `requestWillBeSentExtraInfo` to `NetworkDomain` |
+| `API.md` | document new fields + key-gated replay workflow example |
+| `package.json` | version bump `1.4.4-stealth.1` → `1.4.5-stealth.1` |
