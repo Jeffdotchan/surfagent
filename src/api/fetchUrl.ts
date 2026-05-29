@@ -61,7 +61,11 @@ export async function fetchUrl(body: FetchBody): Promise<FetchResult> {
     const cred = currentProxyCred();
     if (cred) {
       const token = 'Basic ' + Buffer.from(`${cred.username}:${cred.password}`).toString('base64');
-      dispatcher = new ProxyAgent({ uri: `http://${cred.host}:${cred.port}`, token });
+      // PacketStream's gateway (proxy.packetstream.io:31111) requires the HTTPS proxy
+      // scheme — `http://` yields "Proxy CONNECT aborted". Chrome is launched with
+      // --proxy-server=https://... for the same reason. Override via SURFAGENT_PROXY_SCHEME.
+      const scheme = process.env.SURFAGENT_PROXY_SCHEME || 'https';
+      dispatcher = new ProxyAgent({ uri: `${scheme}://${cred.host}:${cred.port}`, token });
       proxied = true;
     }
   }
