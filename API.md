@@ -421,6 +421,76 @@ The expression is evaluated via `Runtime.evaluate` with `returnByValue: true`, s
 
 ---
 
+### POST /capture
+
+Passively record a tab's network traffic for a time window and return a deduped list of the API calls it makes (the page's "hidden APIs"). Uses the CDP `Network` domain — it observes real requests instead of monkey-patching `fetch`, so it catches on-load and websocket traffic too.
+
+By default it captures **XHR + Fetch** resource types (what "backend API" usually means — not images/CSS/fonts/documents) and dedupes on `method + url` (query string stripped).
+
+> **LAN / loopback only.** Like `/eval`, `/capture` is **NOT** on the public cloudflared tunnel allowlist (public surface remains `/navigate`, `/recon`, `/browser/fetch/search`). Captured response bodies can contain auth tokens / PII, so this endpoint must only be reached over the local network.
+
+**Request fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `tab` | string | — (required) | Tab to attach to — index (`"0"`), tab id, or URL/title substring. |
+| `durationMs` | number | `8000` | How long to record, in ms. Clamped to `60000`. |
+| `reload` | boolean | `false` | `Page.reload()` after attaching, to catch on-load API calls. |
+| `navigate` | string | — | `Page.navigate({url})` after attaching (alternative to `reload`). |
+| `types` | string[] | `["XHR","Fetch"]` | Resource types to keep. Pass `["*"]` (single element) to keep all types. |
+| `includeBodies` | boolean | `false` | Also fetch response bodies for matching calls (capped at 64 KB each; sets `truncated`). Bodies that Chrome has already evicted are silently skipped. |
+| `stripQuery` | boolean | `true` | When deduping, ignore the `?query` portion of the URL. |
+
+**Response:**
+```json
+{
+  "tab": "ABC123",
+  "url": "https://app.example.com/dashboard",
+  "capturedMs": 8000,
+  "totalRequests": 47,
+  "apis": [
+    {
+      "method": "GET",
+      "url": "https://app.example.com/api/v2/listings",
+      "type": "XHR",
+      "status": 200,
+      "mimeType": "application/json",
+      "requestPayload": null,
+      "responseBytes": 18342
+    },
+    {
+      "method": "POST",
+      "url": "https://app.example.com/api/v2/track",
+      "type": "Fetch",
+      "status": 204,
+      "mimeType": null,
+      "requestPayload": "{\"event\":\"view\"}",
+      "responseBytes": 0
+    }
+  ]
+}
+```
+
+`totalRequests` counts every observed request (pre-filter, pre-dedup); `apis` is the filtered, deduped list. When `includeBodies` is set, matching entries also carry `body` (string, possibly truncated) and `truncated` (boolean).
+
+**Examples:**
+
+Discover the backend API a JSON-driven SPA calls on load:
+```bash
+curl -s -X POST localhost:3456/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"tab":"0","reload":true,"durationMs":8000}'
+```
+
+Capture with response bodies, navigating to a fresh URL:
+```bash
+curl -s -X POST localhost:3456/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"tab":"0","navigate":"https://app.example.com/dashboard","includeBodies":true,"durationMs":10000}'
+```
+
+---
+
 ### GET /tabs
 
 List all open Chrome tabs.
