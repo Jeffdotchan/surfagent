@@ -438,7 +438,8 @@ By default it captures **XHR + Fetch** resource types (what "backend API" usuall
 | `reload` | boolean | `false` | `Page.reload()` after attaching, to catch on-load API calls. |
 | `navigate` | string | — | `Page.navigate({url})` after attaching (alternative to `reload`). |
 | `types` | string[] | `["XHR","Fetch"]` | Resource types to keep. Pass `["*"]` (single element) to keep all types. |
-| `includeBodies` | boolean | `false` | Also fetch response bodies for matching calls (capped at 64 KB each; sets `truncated`). Bodies that Chrome has already evicted are silently skipped. |
+| `includeBodies` | boolean | `false` | Also fetch response bodies for matching calls (capped per `maxBodyBytes`; sets `truncated` when cut). Bodies that Chrome has already evicted are silently skipped. |
+| `maxBodyBytes` | number | `65536` | Per-body cap (bytes) when `includeBodies` is set. Clamped to 8 MiB. Raise it when capturing large SSR `__NEXT_DATA__` Document bodies that exceed the 64 KiB default. |
 | `stripQuery` | boolean | `true` | When deduping, ignore the `?query` portion of the URL. |
 
 **Response:**
@@ -488,6 +489,19 @@ curl -s -X POST localhost:3456/capture \
   -H 'Content-Type: application/json' \
   -d '{"tab":"0","navigate":"https://app.example.com/dashboard","includeBodies":true,"durationMs":10000}'
 ```
+
+Capture a server-rendered page's HTML payload (SSR sites have no XHR API — see caveat below):
+```bash
+curl -s -X POST localhost:3456/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"tab":"0","reload":true,"types":["Document"],"includeBodies":true,"maxBodyBytes":2097152,"durationMs":10000}'
+```
+
+**Caveats (what `/capture` can and cannot find):**
+
+- **SSR sites have no client-side API to capture.** Server-rendered apps (Next.js, etc.) embed their data in the initial HTML — e.g. a `<script id="__NEXT_DATA__">` hydration payload — and fire **no XHR/Fetch** for it. An XHR/Fetch capture comes back empty. To get the data, capture the **`Document`** body instead (`types:["Document"]`, `includeBodies:true`) and parse the embedded JSON. These payloads are large, so raise `maxBodyBytes`. (Verified against autotrader.com 2026-05-28: 0 XHR/Fetch, data lives in `__NEXT_DATA__`. Contrast a client-rendered SRP, which *does* expose a listings XHR.)
+- **A static, already-loaded page emits nothing.** Without `reload`/`navigate` or user interaction, no requests fire — you get 0 events. Use `reload:true` to re-trigger on-load traffic.
+- **`Page.navigate()` can trip bot detection.** Some WAFs (Akamai observed on autotrader.com) distinguish CDP-driven `navigate:` from user navigation and serve a block/CAPTCHA page, which then flags the session cookie for subsequent loads. For protected sites, open the tab with `/recon {keepTab:true}` (a warm, user-style load) and capture on the existing tab with `reload:false` — avoid the `navigate:` param.
 
 ---
 

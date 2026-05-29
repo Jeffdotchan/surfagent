@@ -4,7 +4,8 @@ import { injectStealth } from '../stealth/inject.js';
 import { installProxyAuth } from '../proxy/authHandler.js';
 const DEFAULT_DURATION_MS = 8000;
 const MAX_DURATION_MS = 60000;
-const BODY_CAP_BYTES = 64 * 1024;
+const DEFAULT_BODY_CAP_BYTES = 64 * 1024;
+const MAX_BODY_CAP_BYTES = 8 * 1024 * 1024; // hard ceiling to bound memory per capture
 const DEFAULT_TYPES = ['XHR', 'Fetch'];
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -19,6 +20,7 @@ export async function captureTab(body, opts = {}) {
     const stripQuery = body.stripQuery !== false; // default true
     const includeBodies = body.includeBodies === true;
     const durationMs = Math.min(typeof body.durationMs === 'number' && body.durationMs > 0 ? body.durationMs : DEFAULT_DURATION_MS, MAX_DURATION_MS);
+    const bodyCap = Math.min(typeof body.maxBodyBytes === 'number' && body.maxBodyBytes > 0 ? body.maxBodyBytes : DEFAULT_BODY_CAP_BYTES, MAX_BODY_CAP_BYTES);
     // Connect a fresh raw client and mirror connectToTab's setup, plus the Network domain.
     const client = await CDP({ target: target.id, port: opts.port, host: opts.host });
     try {
@@ -73,8 +75,8 @@ export async function captureTab(body, opts = {}) {
                 Network.getResponseBody({ requestId: event.requestId })
                     .then(resBody => {
                     let text = resBody?.body ?? '';
-                    if (text.length > BODY_CAP_BYTES) {
-                        text = text.slice(0, BODY_CAP_BYTES);
+                    if (text.length > bodyCap) {
+                        text = text.slice(0, bodyCap);
                         rec.truncated = true;
                     }
                     rec.body = text;

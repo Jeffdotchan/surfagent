@@ -5,6 +5,7 @@ export interface CaptureBody {
     navigate?: string;
     types?: string[];
     includeBodies?: boolean;
+    maxBodyBytes?: number;
     stripQuery?: boolean;
 }
 export interface CapturedApi {

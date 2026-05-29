@@ -146,7 +146,7 @@ const server = http.createServer(async (req, res) => {
         if (path === '/capture' && req.method === 'POST') {
             const body = parseBody(await readBody(req));
             if (!body.tab) {
-                return json(res, 400, { error: 'Provide "tab", optional "durationMs", "reload", "navigate", "types", "includeBodies", "stripQuery"' });
+                return json(res, 400, { error: 'Provide "tab", optional "durationMs", "reload", "navigate", "types", "includeBodies", "maxBodyBytes", "stripQuery"' });
             }
             const start = Date.now();
             const result = await captureTab(body, { port: CDP_PORT, host: CDP_HOST });
@@ -234,7 +234,7 @@ server.listen(PORT, () => {
     console.log(`  POST /fill    — { tab, fields: [{ selector, value }], submit? }`);
     console.log(`  POST /click   — { tab, selector? , text? }`);
     console.log(`  POST /dispatch— { tab, selector, event, reactDebug? }`);
-    console.log(`  POST /capture — { tab, durationMs?, reload?, navigate?, types?, includeBodies? }`);
+    console.log(`  POST /capture — { tab, durationMs?, reload?, navigate?, types?, includeBodies?, maxBodyBytes? }`);
     console.log(`  GET  /tabs    — list open Chrome tabs`);
     console.log(`  GET  /health  — check CDP connection`);
 });

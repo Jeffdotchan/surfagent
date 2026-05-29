@@ -5,7 +5,8 @@ import { installProxyAuth } from '../proxy/authHandler.js';
 
 const DEFAULT_DURATION_MS = 8000;
 const MAX_DURATION_MS = 60000;
-const BODY_CAP_BYTES = 64 * 1024;
+const DEFAULT_BODY_CAP_BYTES = 64 * 1024;
+const MAX_BODY_CAP_BYTES = 8 * 1024 * 1024; // hard ceiling to bound memory per capture
 const DEFAULT_TYPES = ['XHR', 'Fetch'];
 
 export interface CaptureBody {
@@ -15,6 +16,8 @@ export interface CaptureBody {
   navigate?: string;           // optional — Page.navigate({url}) after attaching (alt to reload)
   types?: string[];            // default ['XHR','Fetch']; '*' (single elem) = all resource types
   includeBodies?: boolean;     // default false — Network.getResponseBody for matching calls
+  maxBodyBytes?: number;       // default 65536; per-body cap when includeBodies, clamped to MAX_BODY_CAP_BYTES (8 MiB).
+                               //   Raise for SSR/__NEXT_DATA__ Document bodies that exceed 64 KiB.
   stripQuery?: boolean;        // default true — dedup key ignores ?query
 }
 
@@ -60,6 +63,10 @@ export async function captureTab(body: CaptureBody, opts: CaptureOptions = {}): 
   const durationMs = Math.min(
     typeof body.durationMs === 'number' && body.durationMs > 0 ? body.durationMs : DEFAULT_DURATION_MS,
     MAX_DURATION_MS,
+  );
+  const bodyCap = Math.min(
+    typeof body.maxBodyBytes === 'number' && body.maxBodyBytes > 0 ? body.maxBodyBytes : DEFAULT_BODY_CAP_BYTES,
+    MAX_BODY_CAP_BYTES,
   );
 
   // Connect a fresh raw client and mirror connectToTab's setup, plus the Network domain.
@@ -119,8 +126,8 @@ export async function captureTab(body: CaptureBody, opts: CaptureOptions = {}): 
         Network.getResponseBody({ requestId: event.requestId })
           .then(resBody => {
             let text = resBody?.body ?? '';
-            if (text.length > BODY_CAP_BYTES) {
-              text = text.slice(0, BODY_CAP_BYTES);
+            if (text.length > bodyCap) {
+              text = text.slice(0, bodyCap);
               rec.truncated = true;
             }
             rec.body = text;
