@@ -505,6 +505,72 @@ curl -s -X POST localhost:3456/capture \
 
 ---
 
+### POST /fetch
+
+Make a browserless HTTP request — no Chrome in the loop — and (by default) route it through the **same PacketStream sticky session** the instance's Chrome uses, so the target site sees a consistent residential IP across the discovery (browser) and harvest (fetch) phases. This is the **harvest** half of the capture→fetch loop: `/capture` discovers a site's hidden backend API from a warm browser session, then `/fetch` pulls page 2…N of that endpoint directly — orders of magnitude cheaper than rendering each page.
+
+> **LAN / loopback only — NOT on the public cloudflared tunnel allowlist.** `/fetch` is a classic SSRF primitive (it will request any URL reachable from this host, including internal/metadata endpoints) and can route arbitrary traffic out the residential proxy. It must stay loopback like `/eval` and `/capture`. Public surface remains `/navigate`, `/recon`, `/browser/fetch/search`.
+
+**Request fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `url` | string | — (required) | Absolute `http://` or `https://` URL. Other schemes (`file:`, `data:`, …) are rejected with `400 Invalid url`. |
+| `method` | string | `"GET"` | HTTP method. |
+| `headers` | object | — | Request headers, e.g. UA / Accept / Cookie copied from the captured request. |
+| `body` | string | — | Request body for POST/PUT (string — caller `JSON.stringify`s structured payloads). |
+| `proxy` | boolean | `true` | Route via the instance's sticky PacketStream session. `false` = direct (this host's IP). No effect when no proxy is configured for the instance. |
+| `json` | boolean | `false` | When `true`, `JSON.parse` the response body and return it as `json`. On parse failure the raw body is returned under `body` (no error). |
+| `maxBodyBytes` | number | `2097152` (2 MiB) | Body cap in bytes. Clamped to 16 MiB. Sets `truncated:true` when cut. Listings JSON is bigger than `/capture`'s 64 KiB default, hence the larger ceiling. |
+| `timeoutMs` | number | `20000` | Abort timeout in ms. Clamped to `120000`. |
+
+**Response:**
+```json
+{
+  "status": 200,
+  "ok": true,
+  "url": "https://api.example.com/v1/listings?page=2",
+  "headers": { "content-type": "application/json", "...": "..." },
+  "mimeType": "application/json",
+  "bytes": 18342,
+  "json": { "listings": [], "total": 4821 },
+  "proxied": true,
+  "_fetchMs": 412
+}
+```
+
+- `bytes` is the pre-cap body byte length; `truncated:true` appears when the returned text was cut to `maxBodyBytes`.
+- `json` is present only when `json:true` and the parse succeeded — in that case `body` is omitted. Otherwise the text body is returned under `body`.
+- `proxied` reflects whether the request actually went out a proxy (`false` when `proxy:false` or no proxy is configured).
+- `url` is the final URL after redirects (`redirect: 'follow'`).
+
+**Errors:** missing `url` → `400` hint; non-http(s) scheme → `400 Invalid url`; timeout / DNS / connection failure → `502 Upstream fetch failed: <msg>`.
+
+**The capture→fetch workflow (discover then direct-fetch):**
+```bash
+# 1. Discover the listings API from a warm browser tab (see POST /capture).
+curl -s -X POST localhost:3456/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"tab":"0","reload":true,"durationMs":8000}'
+#    → apis[] includes e.g. GET https://websites-search.api.example.inc/api/v1/listings/.../search
+
+# 2. Harvest page 2…N of that endpoint directly — out the SAME residential IP, no Chrome.
+curl -s -X POST localhost:3456/fetch \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://websites-search.api.example.inc/api/v1/listings/.../search?page=2","json":true,"maxBodyBytes":4194304}' \
+  | jq '.status, .proxied, (.json | keys)'
+#    → 200, true, [ "listings", "total", ... ]
+```
+
+Pass `"proxy":false` to fetch from this host's IP instead (e.g. to confirm the residential IP differs):
+```bash
+curl -s -X POST localhost:3456/fetch \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://api.ipify.org?format=json","json":true,"proxy":false}' | jq '.json, .proxied'
+```
+
+---
+
 ### GET /tabs
 
 List all open Chrome tabs.

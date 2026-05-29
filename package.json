@@ -1,6 +1,6 @@
 {
   "name": "surfagent",
-  "version": "1.4.3-stealth.1",
+  "version": "1.4.4-stealth.1",
   "description": "Browser automation API for AI agents — structured page recon, form filling, clicking, and navigation via Chrome CDP",
   "keywords": [
     "ai-agent",
@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "undici": "^6.0.0"
   }
 }

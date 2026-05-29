@@ -27,6 +27,8 @@ export function ensureProxyEnvSet(reason: 'launch' | 'restart'): StickyCred | nu
   if (!cred) return null;
   process.env.SURFAGENT_PROXY_USERNAME = cred.username;
   process.env.SURFAGENT_PROXY_PASSWORD = cred.password;
+  process.env.SURFAGENT_PROXY_HOST = cred.host;
+  process.env.SURFAGENT_PROXY_PORT = String(cred.port);
   const tag = maskSession(cred.password);
   if (reason === 'launch') {
     log(`Chrome will route via proxy ${cred.host}:${cred.port} (sticky session ${tag})`);
@@ -58,7 +60,28 @@ export function rotateProxyCred(): { cred: StickyCred; previousTag: string } | n
   if (!cred) return null;
   process.env.SURFAGENT_PROXY_USERNAME = cred.username;
   process.env.SURFAGENT_PROXY_PASSWORD = cred.password;
+  process.env.SURFAGENT_PROXY_HOST = cred.host;
+  process.env.SURFAGENT_PROXY_PORT = String(cred.port);
   const tag = maskSession(cred.password);
   log(`Proxy creds rotated: ${previousTag} -> ${tag} (host ${cred.host}:${cred.port})`);
   return { cred, previousTag };
+}
+
+/**
+ * Read the current sticky cred from env (all four fields). Returns null if
+ * username or password is absent. Used by browserless proxied paths (/fetch)
+ * to route out the exact same sticky session the live browser uses.
+ */
+export function currentProxyCred(): StickyCred | null {
+  const username = process.env.SURFAGENT_PROXY_USERNAME;
+  const password = process.env.SURFAGENT_PROXY_PASSWORD;
+  if (!username || !password) return null;
+  const host = process.env.SURFAGENT_PROXY_HOST || '';
+  const port = parseInt(process.env.SURFAGENT_PROXY_PORT || '', 10);
+  return {
+    host,
+    port: Number.isFinite(port) ? port : NaN,
+    username,
+    password,
+  };
 }
