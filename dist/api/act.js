@@ -4,8 +4,11 @@ import { getAllTabs } from '../chrome/tabs.js';
 import { sleepJitter, humanMouseTo } from '../stealth/cadence.js';
 async function resolveTab(tabPattern, port, host) {
     const tabs = await getAllTabs(port, host);
-    const index = parseInt(tabPattern, 10);
-    let tab = !isNaN(index) && index >= 0 && index < tabs.length ? tabs[index] : null;
+    let tab = tabs.find(t => t.id === tabPattern) || null;
+    if (!tab) {
+        const index = parseInt(tabPattern, 10);
+        tab = !isNaN(index) && index >= 0 && index < tabs.length ? tabs[index] : null;
+    }
     if (!tab) {
         const lower = tabPattern.toLowerCase();
         tab = tabs.find(t => t.url.toLowerCase().includes(lower) || t.title.toLowerCase().includes(lower)) || null;
