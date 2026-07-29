@@ -99,7 +99,14 @@ function startChrome(chromePath) {
     const cred = ensureProxyEnvSet('launch');
     const proxyBypass = process.env.SURFAGENT_PROXY_BYPASS;
     if (cred) {
-        args.push(`--proxy-server=https://${cred.host}:${cred.port}`);
+        // PacketStream's gateway wants the HTTPS proxy scheme (its :31111 IS the HTTPS
+        // port), so `https` stays the default. Other providers differ — Evomi's
+        // core-residential:1000 is plain HTTP and rejects a TLS handshake, which Chrome
+        // surfaces only as "No internet / Checking the proxy address". Same override
+        // fetchUrl.ts already honours; without it here, /fetch could reach a non-HTTPS
+        // proxy while /recon and /capture silently could not.
+        const scheme = process.env.SURFAGENT_PROXY_SCHEME || 'https';
+        args.push(`--proxy-server=${scheme}://${cred.host}:${cred.port}`);
         if (proxyBypass)
             args.push(`--proxy-bypass-list=${proxyBypass}`);
     }
