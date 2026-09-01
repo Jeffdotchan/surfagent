@@ -12,6 +12,14 @@ const PORT = parseInt(process.env.API_PORT || '3456', 10);
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 const CDP_HOST = process.env.CDP_HOST || 'localhost';
 
+// Interface the HTTP API binds to. Defaults to all interfaces, preserving the
+// long-standing behaviour BLD's fleet and the VDP resolver bridge depend on
+// (the bridge reaches instances over the LAN, and cloudflared connectors proxy
+// to them cross-host). Set API_HOST=127.0.0.1 on a single-host box to keep the
+// API off the network: it has no authentication, and /navigate + /eval + /fetch
+// let any caller drive a real browser and egress from this machine's IP.
+const API_HOST = process.env.API_HOST || '0.0.0.0';
+
 interface RequestBody {
   url?: string;
   tab?: string;
@@ -282,8 +290,8 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   throw err;
 });
 
-server.listen(PORT, () => {
-  console.log(`Browser Recon API running on http://localhost:${PORT}`);
+server.listen(PORT, API_HOST, () => {
+  console.log(`Browser Recon API running on http://localhost:${PORT} (bound to ${API_HOST})`);
   console.log(`CDP target: ${CDP_HOST}:${CDP_PORT}`);
   console.log(`\nEndpoints:`);
   console.log(`  POST /recon         — { url: "..." } or { tab: "0" }`);
